@@ -10,11 +10,12 @@ import (
 
 	"github.com/satori/go.uuid"
 
-	"github.com/RichardKnop/machinery/v1/backends"
-	"github.com/RichardKnop/machinery/v1/brokers"
-	"github.com/RichardKnop/machinery/v1/config"
-	"github.com/RichardKnop/machinery/v1/tasks"
-	"github.com/RichardKnop/machinery/v1/tracing"
+	"github.com/liticer/machinery/v1/backends"
+	"github.com/liticer/machinery/v1/brokers"
+	"github.com/liticer/machinery/v1/config"
+	"github.com/liticer/machinery/v1/tasks"
+	"github.com/liticer/machinery/v1/tracing"
+	"github.com/liticer/machinery/v1/common"
 )
 
 // Server is the main Machinery object and stores all configuration
@@ -35,6 +36,29 @@ func NewServer(cnf *config.Config) (*Server, error) {
 
 	// Backend is optional so we ignore the error
 	backend, _ := BackendFactory(cnf)
+
+	srv := &Server{
+		config:          cnf,
+		registeredTasks: make(map[string]interface{}),
+		broker:          broker,
+		backend:         backend,
+	}
+
+	// init for eager-mode
+	eager, ok := broker.(brokers.EagerMode)
+	if ok {
+		// we don't have to call worker.Launch in eager mode
+		eager.AssignWorker(srv.NewWorker("eager", 0))
+	}
+
+	return srv, nil
+}
+
+func NewServerWithRedisClient(cnf *config.Config, reader common.RedisClientInterface, writer common.RedisClientInterface) (*Server, error) {
+	broker := brokers.NewRedisV2Broker(cnf, reader, writer)
+
+	// Backend is optional so we ignore the error
+	backend := backends.NewRedisV2Backend(cnf, reader, writer)
 
 	srv := &Server{
 		config:          cnf,

@@ -10,11 +10,11 @@ import (
 
 	"github.com/opentracing/opentracing-go"
 
-	"github.com/RichardKnop/machinery/v1/backends"
-	"github.com/RichardKnop/machinery/v1/log"
-	"github.com/RichardKnop/machinery/v1/retry"
-	"github.com/RichardKnop/machinery/v1/tasks"
-	"github.com/RichardKnop/machinery/v1/tracing"
+	"github.com/liticer/machinery/v1/backends"
+	"github.com/liticer/machinery/v1/log"
+	"github.com/liticer/machinery/v1/retry"
+	"github.com/liticer/machinery/v1/tasks"
+	"github.com/liticer/machinery/v1/tracing"
 )
 
 // Worker represents a single worker process

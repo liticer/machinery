@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RichardKnop/machinery/v1/config"
-	"github.com/RichardKnop/machinery/v1/log"
-	"github.com/RichardKnop/machinery/v1/tasks"
+	"github.com/liticer/machinery/v1/config"
+	"github.com/liticer/machinery/v1/log"
+	"github.com/liticer/machinery/v1/tasks"
 	"gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
 )

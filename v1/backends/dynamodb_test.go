@@ -3,9 +3,9 @@ package backends_test
 import (
 	"testing"
 
-	"github.com/RichardKnop/machinery/v1/backends"
-	"github.com/RichardKnop/machinery/v1/log"
-	"github.com/RichardKnop/machinery/v1/tasks"
+	"github.com/liticer/machinery/v1/backends"
+	"github.com/liticer/machinery/v1/log"
+	"github.com/liticer/machinery/v1/tasks"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/service/dynamodb"
 	"github.com/stretchr/testify/assert"

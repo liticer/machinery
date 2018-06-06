@@ -1,8 +1,8 @@
 package brokers
 
 import (
-	"github.com/RichardKnop/machinery/v1/config"
-	"github.com/RichardKnop/machinery/v1/tasks"
+	"github.com/liticer/machinery/v1/config"
+	"github.com/liticer/machinery/v1/tasks"
 )
 
 // Interface - a common interface for all brokers

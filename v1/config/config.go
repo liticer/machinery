@@ -9,12 +9,17 @@ import (
 	"github.com/aws/aws-sdk-go/service/sqs"
 )
 
+const (
+	DefaultBroker        = "amqp://guest:guest@localhost:5672/"
+	DefaultResultBackend = "amqp://guest:guest@localhost:5672/"
+)
+
 var (
 	// Start with sensible default values
 	defaultCnf = &Config{
-		Broker:          "amqp://guest:guest@localhost:5672/",
+		Broker:          DefaultBroker,
 		DefaultQueue:    "machinery_tasks",
-		ResultBackend:   "amqp://guest:guest@localhost:5672/",
+		ResultBackend:   DefaultResultBackend,
 		ResultsExpireIn: 3600,
 		AMQP: &AMQPConfig{
 			Exchange:      "machinery_exchange",

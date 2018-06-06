@@ -6,58 +6,40 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"strings"
 
 	"github.com/liticer/machinery/v1/common"
 	"github.com/liticer/machinery/v1/config"
 	"github.com/liticer/machinery/v1/log"
 	"github.com/liticer/machinery/v1/tasks"
 	"github.com/RichardKnop/redsync"
-	"github.com/gomodule/redigo/redis"
+	"gopkg.in/redis.v5"
 )
 
-var redisDelayedTasksKey = "delayed_tasks"
-
-// RedisBroker represents a Redis broker
-type RedisBroker struct {
-	host              string
-	password          string
-	db                int
-	pool              *redis.Pool
+// RedisV2Broker represents a Redis broker
+type RedisV2Broker struct {
+	reader            common.RedisClientInterface
+	writer            common.RedisClientInterface
 	stopReceivingChan chan int
 	stopDelayedChan   chan int
 	processingWG      sync.WaitGroup // use wait group to make sure task processing completes on interrupt signal
 	receivingWG       sync.WaitGroup
 	delayedWG         sync.WaitGroup
-	// If set, path to a socket file overrides hostname
-	socketPath string
-	redsync    *redsync.Redsync
+	redsync           *redsync.Redsync
 	Broker
-	common.RedisConnector
 }
 
-// NewRedisBroker creates new RedisBroker instance
-func NewRedisBroker(cnf *config.Config, host, password, socketPath string, db int) Interface {
-	b := &RedisBroker{Broker: New(cnf)}
-	b.host = host
-	b.db = db
-	b.password = password
-	b.socketPath = socketPath
-
-	return b
+// NewRedisV2Broker creates new RedisV2Broker instance
+func NewRedisV2Broker(cnf *config.Config, reader common.RedisClientInterface, writer common.RedisClientInterface) Interface {
+	return &RedisV2Broker{Broker: New(cnf), reader: reader, writer: writer}
 }
 
 // StartConsuming enters a loop and waits for incoming messages
-func (b *RedisBroker) StartConsuming(consumerTag string, concurrency int, taskProcessor TaskProcessor) (bool, error) {
+func (b *RedisV2Broker) StartConsuming(consumerTag string, concurrency int, taskProcessor TaskProcessor) (bool, error) {
 	b.startConsuming(consumerTag, taskProcessor)
 
-	b.pool = nil
-	conn := b.open()
-	defer conn.Close()
-	defer b.pool.Close()
-
 	// Ping the server to make sure connection is live
-	_, err := conn.Do("PING")
-	if err != nil {
+	if err := b.reader.Ping().Err(); err != nil {
 		b.retryFunc(b.retryStopChan)
 		return b.retry, err
 	}
@@ -127,36 +109,6 @@ func (b *RedisBroker) StartConsuming(consumerTag string, concurrency int, taskPr
 		}
 	}()
 
-	// A goroutine to watch for delayed tasks and push them to deliveries
-	// channel for consumption by the worker
-	go func() {
-		defer b.delayedWG.Done()
-
-		for {
-			select {
-			// A way to stop this goroutine from b.StopConsuming
-			case <-b.stopDelayedChan:
-				return
-			default:
-				task, err := b.nextDelayedTask(redisDelayedTasksKey)
-				if err != nil {
-					continue
-				}
-
-				signature := new(tasks.Signature)
-				decoder := json.NewDecoder(bytes.NewReader(task))
-				decoder.UseNumber()
-				if err := decoder.Decode(signature); err != nil {
-					log.ERROR.Print(NewErrCouldNotUnmarshaTaskSignature(task, err))
-				}
-
-				if err := b.Publish(signature); err != nil {
-					log.ERROR.Print(err)
-				}
-			}
-		}
-	}()
-
 	if err := b.consume(deliveries, pool, concurrency, taskProcessor); err != nil {
 		return b.retry, err
 	}
@@ -168,7 +120,7 @@ func (b *RedisBroker) StartConsuming(consumerTag string, concurrency int, taskPr
 }
 
 // StopConsuming quits the loop
-func (b *RedisBroker) StopConsuming() {
+func (b *RedisV2Broker) StopConsuming() {
 	// Stop the receiving goroutine
 	b.stopReceivingChan <- 1
 	// Waiting for the receiving goroutine to have stopped
@@ -186,7 +138,7 @@ func (b *RedisBroker) StopConsuming() {
 }
 
 // Publish places a new message on the default queue
-func (b *RedisBroker) Publish(signature *tasks.Signature) error {
+func (b *RedisV2Broker) Publish(signature *tasks.Signature) error {
 	// Adjust routing key (this decides which queue the message will be published to)
 	AdjustRoutingKey(b, signature)
 
@@ -195,38 +147,20 @@ func (b *RedisBroker) Publish(signature *tasks.Signature) error {
 		return fmt.Errorf("JSON marshal error: %s", err)
 	}
 
-	conn := b.open()
-	defer conn.Close()
-
-	// Check the ETA signature field, if it is set and it is in the future,
-	// delay the task
-	if signature.ETA != nil {
-		now := time.Now().UTC()
-
-		if signature.ETA.After(now) {
-			score := signature.ETA.UnixNano()
-			_, err = conn.Do("ZADD", redisDelayedTasksKey, score, msg)
-			return err
-		}
-	}
-
-	_, err = conn.Do("RPUSH", signature.RoutingKey, msg)
-	return err
+	return b.writer.RPush(signature.RoutingKey, msg).Err()
 }
 
 // GetPendingTasks returns a slice of task signatures waiting in the queue
-func (b *RedisBroker) GetPendingTasks(queue string) ([]*tasks.Signature, error) {
-	conn := b.open()
-	defer conn.Close()
+func (b *RedisV2Broker) GetPendingTasks(queue string) ([]*tasks.Signature, error) {
 
 	if queue == "" {
 		queue = b.cnf.DefaultQueue
 	}
-	dataBytes, err := conn.Do("LRANGE", queue, 0, 10)
-	if err != nil {
-		return nil, err
+	cmd := b.reader.LRange(queue, 0, 10)
+	if cmd.Err() != nil {
+		return nil, cmd.Err()
 	}
-	results, err := redis.ByteSlices(dataBytes, err)
+	results, err := cmd.Result()
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +168,7 @@ func (b *RedisBroker) GetPendingTasks(queue string) ([]*tasks.Signature, error) 
 	taskSignatures := make([]*tasks.Signature, len(results))
 	for i, result := range results {
 		signature := new(tasks.Signature)
-		decoder := json.NewDecoder(bytes.NewReader(result))
+		decoder := json.NewDecoder(strings.NewReader(result))
 		decoder.UseNumber()
 		if err := decoder.Decode(signature); err != nil {
 			return nil, err
@@ -246,7 +180,7 @@ func (b *RedisBroker) GetPendingTasks(queue string) ([]*tasks.Signature, error) 
 
 // consume takes delivered messages from the channel and manages a worker pool
 // to process tasks concurrently
-func (b *RedisBroker) consume(deliveries <-chan []byte, pool chan struct{}, concurrency int, taskProcessor TaskProcessor) error {
+func (b *RedisV2Broker) consume(deliveries <-chan []byte, pool chan struct{}, concurrency int, taskProcessor TaskProcessor) error {
 	errorsChan := make(chan error, concurrency*2)
 
 	for {
@@ -282,7 +216,7 @@ func (b *RedisBroker) consume(deliveries <-chan []byte, pool chan struct{}, conc
 }
 
 // consumeOne processes a single message using TaskProcessor
-func (b *RedisBroker) consumeOne(delivery []byte, taskProcessor TaskProcessor) error {
+func (b *RedisV2Broker) consumeOne(delivery []byte, taskProcessor TaskProcessor) error {
 	signature := new(tasks.Signature)
 	decoder := json.NewDecoder(bytes.NewReader(delivery))
 	decoder.UseNumber()
@@ -293,10 +227,7 @@ func (b *RedisBroker) consumeOne(delivery []byte, taskProcessor TaskProcessor) e
 	// If the task is not registered, we requeue it,
 	// there might be different workers for processing specific tasks
 	if !b.IsTaskRegistered(signature.Name) {
-		conn := b.open()
-		defer conn.Close()
-
-		conn.Do("RPUSH", b.cnf.DefaultQueue, delivery)
+		b.writer.RPush(b.cnf.DefaultQueue, delivery)
 		return nil
 	}
 
@@ -306,11 +237,9 @@ func (b *RedisBroker) consumeOne(delivery []byte, taskProcessor TaskProcessor) e
 }
 
 // nextTask pops next available task from the default queue
-func (b *RedisBroker) nextTask(queue string) (result []byte, err error) {
-	conn := b.open()
-	defer conn.Close()
+func (b *RedisV2Broker) nextTask(queue string) (result []byte, err error) {
 
-	items, err := redis.ByteSlices(conn.Do("BLPOP", queue, 1))
+	items, err := b.writer.BLPop(1, queue).Result()
 	if err != nil {
 		return []byte{}, err
 	}
@@ -318,90 +247,8 @@ func (b *RedisBroker) nextTask(queue string) (result []byte, err error) {
 	// items[0] - the name of the key where an element was popped
 	// items[1] - the value of the popped element
 	if len(items) != 2 {
-		return []byte{}, redis.ErrNil
+		return []byte{}, redis.Nil
 	}
 
-	result = items[1]
-
-	return result, nil
-}
-
-// nextDelayedTask pops a value from the ZSET key using WATCH/MULTI/EXEC commands.
-// https://github.com/gomodule/redigo/blob/master/redis/zpop_example_test.go
-func (b *RedisBroker) nextDelayedTask(key string) (result []byte, err error) {
-	conn := b.open()
-	defer conn.Close()
-
-	defer func() {
-		// Return connection to normal state on error.
-		// https://redis.io/commands/discard
-		if err != nil {
-			conn.Do("DISCARD")
-		}
-	}()
-
-	var (
-		items [][]byte
-		reply interface{}
-	)
-
-	var pollPeriod = 20 // default poll period for delayed tasks
-	if b.cnf != nil && b.cnf.Redis != nil {
-		pollPeriod = b.cnf.Redis.DelayedTasksPollPeriod
-	}
-
-	for {
-		// Space out queries to ZSET so we don't bombard redis
-		// server with relentless ZRANGEBYSCOREs
-		time.Sleep(time.Duration(pollPeriod) * time.Millisecond)
-		if _, err = conn.Do("WATCH", key); err != nil {
-			return
-		}
-
-		now := time.Now().UTC().UnixNano()
-
-		// https://redis.io/commands/zrangebyscore
-		items, err = redis.ByteSlices(conn.Do(
-			"ZRANGEBYSCORE",
-			key,
-			0,
-			now,
-			"LIMIT",
-			0,
-			1,
-		))
-		if err != nil {
-			return
-		}
-		if len(items) != 1 {
-			err = redis.ErrNil
-			return
-		}
-
-		conn.Send("MULTI")
-		conn.Send("ZREM", key, items[0])
-		reply, err = conn.Do("EXEC")
-		if err != nil {
-			return
-		}
-
-		if reply != nil {
-			result = items[0]
-			break
-		}
-	}
-
-	return
-}
-
-// open returns or creates instance of Redis connection
-func (b *RedisBroker) open() redis.Conn {
-	if b.pool == nil {
-		b.pool = b.NewPool(b.socketPath, b.host, b.password, b.db, b.cnf.Redis)
-	}
-	if b.redsync == nil {
-		var pools = []redsync.Pool{b.pool}
-		b.redsync = redsync.New(pools)
-	}
-	return b.pool.Get()
+	return []byte(items[1]), nil
 }
