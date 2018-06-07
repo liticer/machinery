@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/aws/aws-sdk-go/service/sqs"
 )
 
 const (
@@ -51,7 +49,6 @@ type Config struct {
 	ResultBackend   string       `yaml:"result_backend" envconfig:"RESULT_BACKEND"`
 	ResultsExpireIn int          `yaml:"results_expire_in" envconfig:"RESULTS_EXPIRE_IN"`
 	AMQP            *AMQPConfig  `yaml:"amqp"`
-	SQS             *SQSConfig   `yaml:"sqs"`
 	Redis           *RedisConfig `yaml:"redis"`
 	TLSConfig       *tls.Config
 	// NoUnixSignals - when set disables signal handling in machinery
@@ -75,15 +72,6 @@ type AMQPConfig struct {
 type DynamoDBConfig struct {
 	TaskStatesTable string `yaml:"task_states_table" envconfig:"TASK_STATES_TABLE"`
 	GroupMetasTable string `yaml:"group_metas_table" envconfig:"GROUP_METAS_TABLE"`
-}
-
-// SQSConfig wraps SQS related configuration
-type SQSConfig struct {
-	Client          *sqs.SQS
-	WaitTimeSeconds int `yaml:"receive_wait_time_seconds" envconfig:"SQS_WAIT_TIME_SECONDS"`
-	// https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html
-	// visibility timeout should default to nil to use the overall visibility timeout for the queue
-	VisibilityTimeout *int `yaml:"receive_visibility_timeout" envconfig:"SQS_VISIBILITY_TIMEOUT"`
 }
 
 type RedisConfig struct {

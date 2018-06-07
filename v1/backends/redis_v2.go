@@ -213,11 +213,11 @@ func (b *RedisV2Backend) getStates(taskUUIDs ...string) ([]*tasks.TaskState, err
 	}
 
 	for i, value := range cmd.Val() {
-		stateBytes, ok := value.([]byte)
+		stateStr, ok := value.(string)
 		if !ok {
-			return taskStates, fmt.Errorf("expected byte array, instead got: %v", value)
+			return taskStates, fmt.Errorf("expected string, instead got: %v", value)
 		}
-
+		stateBytes := []byte(stateStr)
 		taskState := new(tasks.TaskState)
 		decoder := json.NewDecoder(bytes.NewReader(stateBytes))
 		decoder.UseNumber()

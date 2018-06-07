@@ -52,10 +52,6 @@ func BrokerFactory(cnf *config.Config) (brokers.Interface, error) {
 		return brokers.NewEagerBroker(), nil
 	}
 
-	if strings.HasPrefix(cnf.Broker, "https://sqs") {
-		return brokers.NewAWSSQSBroker(cnf), nil
-	}
-
 	return nil, fmt.Errorf("Factory failed with broker URL: %v", cnf.Broker)
 }
 
@@ -106,10 +102,6 @@ func BackendFactory(cnf *config.Config) (backends.Interface, error) {
 
 	if strings.HasPrefix(cnf.ResultBackend, "eager") {
 		return backends.NewEagerBackend(), nil
-	}
-
-	if strings.HasPrefix(cnf.ResultBackend, "https://dynamodb") {
-		return backends.NewDynamoDBBackend(cnf), nil
 	}
 
 	return nil, fmt.Errorf("Factory failed with result backend: %v", cnf.ResultBackend)
