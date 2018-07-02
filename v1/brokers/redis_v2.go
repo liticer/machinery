@@ -92,6 +92,7 @@ func (b *RedisV2Broker) StartConsuming(consumerTag string, concurrency int, task
 					task, err := b.nextTask(b.cnf.DefaultQueue)
 					if err != nil {
 						// something went wrong, wait a bit before continuing the loop
+						log.ERROR.Printf("Get next task error, %s", err.Error())
 						timer.Reset(timerDuration)
 						continue
 					}
@@ -103,6 +104,7 @@ func (b *RedisV2Broker) StartConsuming(consumerTag string, concurrency int, task
 					timer.Reset(0)
 				} else {
 					// using all parallel task processing slots, wait a bit before continuing the loop
+					log.INFO.Printf("Concurrency not available, pool %d, delivers %d, wait", len(pool), len(deliveries))
 					timer.Reset(timerDuration)
 				}
 			}
@@ -227,10 +229,10 @@ func (b *RedisV2Broker) consumeOne(delivery []byte, taskProcessor TaskProcessor)
 	// If the task is not registered, we requeue it,
 	// there might be different workers for processing specific tasks
 	if !b.IsTaskRegistered(signature.Name) {
+		log.ERROR.Printf("Task %s not registered, skip", signature.Name)
 		b.writer.RPush(b.cnf.DefaultQueue, delivery)
 		return nil
 	}
-
 	log.INFO.Printf("Received new message: %s", delivery)
 
 	return taskProcessor.Process(signature)
