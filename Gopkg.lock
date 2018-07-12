@@ -5,7 +5,7 @@
   branch = "master"
   name = "github.com/RichardKnop/logging"
   packages = ["."]
-  revision = "66aaaba182584c20ec574b064975974f92f0936a"
+  revision = "314bb050fc93e11a2a3862d188c9855bb2f105f1"
 
 [[projects]]
   branch = "master"

@@ -19,3 +19,4 @@ func IsAMQP(b Interface) bool {
 	_, isAMQPBackend := b.(*AMQPBackend)
 	return isAMQPBackend
 }
+
