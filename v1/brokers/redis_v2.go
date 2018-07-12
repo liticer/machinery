@@ -69,7 +69,7 @@ func (b *RedisV2Broker) StartConsuming(consumerTag string, concurrency int, task
 
 	// Timer is added otherwise when the pools were all active it will spin the for loop
 	var (
-		timerDuration = time.Duration(100000000 * time.Nanosecond) // 100 miliseconds
+		timerDuration = time.Duration(1000000000 * time.Nanosecond) // 1000 miliseconds
 		timer         = time.NewTimer(0)
 	)
 	// A receivig goroutine keeps popping messages from the queue by BLPOP
@@ -92,8 +92,13 @@ func (b *RedisV2Broker) StartConsuming(consumerTag string, concurrency int, task
 					task, err := b.nextTask(b.cnf.DefaultQueue)
 					if err != nil {
 						// something went wrong, wait a bit before continuing the loop
-						log.DEBUG.Printf("Get next task error, %s", err.Error())
-						timer.Reset(timerDuration)
+						if err == redis.Nil {
+							log.DEBUG.Printf("No task, sleep")
+							timer.Reset(timerDuration * 10)
+						} else {
+							log.ERROR.Printf("Get next task error, %s", err.Error())
+							timer.Reset(timerDuration)
+						}
 						continue
 					}
 
@@ -102,7 +107,7 @@ func (b *RedisV2Broker) StartConsuming(consumerTag string, concurrency int, task
 				if concurrencyAvailable() {
 					// parallel task processing slots still available, continue loop immediately
 					log.DEBUG.Printf("Concurrency available, deliveries/pool(%d/%d)", len(deliveries), len(pool))
-					timer.Reset(0)
+					timer.Reset(timerDuration)
 				} else {
 					// using all parallel task processing slots, wait a bit before continuing the loop
 					log.DEBUG.Printf("Concurrency not available, deliveries/pool(%d/%d)", len(deliveries), len(pool))
@@ -241,17 +246,10 @@ func (b *RedisV2Broker) consumeOne(delivery []byte, taskProcessor TaskProcessor)
 
 // nextTask pops next available task from the default queue
 func (b *RedisV2Broker) nextTask(queue string) (result []byte, err error) {
-
-	items, err := b.writer.BLPop(1, queue).Result()
+	item, err := b.writer.LPop(queue).Result()
 	if err != nil {
 		return []byte{}, err
 	}
 
-	// items[0] - the name of the key where an element was popped
-	// items[1] - the value of the popped element
-	if len(items) != 2 {
-		return []byte{}, redis.Nil
-	}
-
-	return []byte(items[1]), nil
+	return []byte(item), nil
 }
