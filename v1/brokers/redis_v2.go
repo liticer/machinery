@@ -92,13 +92,10 @@ func (b *RedisV2Broker) StartConsuming(consumerTag string, concurrency int, task
 					task, err := b.nextTask(b.cnf.DefaultQueue)
 					if err != nil {
 						// something went wrong, wait a bit before continuing the loop
-						if err == redis.Nil {
-							log.DEBUG.Printf("No task, sleep")
-							timer.Reset(timerDuration * 10)
-						} else {
+						if err != redis.Nil {
 							log.ERROR.Printf("Get next task error, %s", err.Error())
-							timer.Reset(timerDuration)
 						}
+						timer.Reset(timerDuration)
 						continue
 					}
 
@@ -107,7 +104,7 @@ func (b *RedisV2Broker) StartConsuming(consumerTag string, concurrency int, task
 				if concurrencyAvailable() {
 					// parallel task processing slots still available, continue loop immediately
 					log.DEBUG.Printf("Concurrency available, deliveries/pool(%d/%d)", len(deliveries), len(pool))
-					timer.Reset(timerDuration)
+					timer.Reset(0)
 				} else {
 					// using all parallel task processing slots, wait a bit before continuing the loop
 					log.DEBUG.Printf("Concurrency not available, deliveries/pool(%d/%d)", len(deliveries), len(pool))
